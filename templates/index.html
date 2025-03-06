@@ -124,12 +124,14 @@
         <div class="steps-container">
             <!-- Step 1: Upload PDF -->
             <div class="step" id="step1">
-                <div class="step-number">1</div>
-                <h2>Upload PDF</h2>
+                <div class="step-title">
+                    <div class="step-number">1</div>
+                    <h2>Upload PDF</h2>
+                </div>
                 <div class="upload-area" id="dropArea">
                     <i class="fa fa-file-pdf fa-3x"></i>
                     <p>Drag & drop a PDF file here or</p>
-                    <label class="button">
+                    <label class="btn btn-primary">
                         Choose File
                         <input type="file" id="pdfInput" accept=".pdf" hidden>
                     </label>
@@ -142,19 +144,23 @@
 
             <!-- Step 2: Review Extracted Text -->
             <div class="step" id="step2" style="display: none;">
-                <div class="step-number">2</div>
-                <h2>Review Extracted Text</h2>
-                <textarea id="extractedText" placeholder="Extracted text will appear here..."></textarea>
+                <div class="step-title">
+                    <div class="step-number">2</div>
+                    <h2>Review Extracted Text</h2>
+                </div>
+                <textarea id="extractedText" class="text-area" placeholder="Extracted text will appear here..."></textarea>
             </div>
 
             <!-- Step 3: Generate Audio -->
             <div class="step" id="step3" style="display: none;">
-                <div class="step-number">3</div>
-                <h2>Generate Audio</h2>
+                <div class="step-title">
+                    <div class="step-number">3</div>
+                    <h2>Generate Audio</h2>
+                </div>
                 <div class="options-container">
                     <div class="voice-selection">
                         <label for="voiceSelect">Select Voice Language:</label>
-                        <select id="voiceSelect">
+                        <select id="voiceSelect" class="form-select language-select">
                             <option value="en">English (US)</option>
                             <option value="sv">Swedish</option>
                             <option value="fr">French</option>
@@ -169,9 +175,9 @@
                         </select>
                     </div>
                     <p id="ttsInfo">Using Microsoft Edge TTS</p>
-                    <button id="generateBtn" class="button">Generating...</button>
+                    <button id="generateBtn" class="btn btn-primary">Generate Audio</button>
                 </div>
-                <div class="progress-container" id="generateProgress">
+                <div class="progress-container" id="generateProgress" style="display: none;">
                     <div class="progress-bar" id="generateProgressBar"></div>
                 </div>
                 <p class="note">Note: Audio generation with Edge TTS may take a few seconds.</p>
@@ -179,11 +185,13 @@
 
             <!-- Step 4: Download Audio -->
             <div class="step" id="step4" style="display: none;">
-                <div class="step-number">4</div>
-                <h2>Download & Listen</h2>
+                <div class="step-title">
+                    <div class="step-number">4</div>
+                    <h2>Download & Listen</h2>
+                </div>
                 <div class="audio-container">
                     <audio id="audioPlayer" controls></audio>
-                    <a id="downloadLink" class="button" download>
+                    <a id="downloadLink" class="btn btn-success" download>
                         <i class="fa fa-download"></i> Download MP3
                     </a>
                 </div>
@@ -200,103 +208,198 @@
                     <h4>Technical Details:</h4>
                     <pre id="errorTrace"></pre>
                 </div>
-                <button id="toggleErrorDetailsBtn" class="toggle-details-btn">Show Technical Details</button>
+                <button id="toggleErrorDetailsBtn" class="btn btn-sm btn-outline-secondary mt-2">Show Technical Details</button>
             </div>
         </div>
     </div>
 
     <script>
         document.addEventListener('DOMContentLoaded', function() {
-            const uploadForm = document.getElementById('upload-form');
-            const pdfFileInput = document.getElementById('pdf-file');
-            const extractedTextArea = document.getElementById('extracted-text');
-            const generateAudioBtn = document.getElementById('generate-audio-btn');
-            const voiceSelect = document.getElementById('voice-select');
-            const audioPlayer = document.getElementById('audio-player');
-            const audioElement = document.getElementById('audio-element');
-            const downloadLink = document.getElementById('download-link');
-            const loadingSpinner = document.getElementById('loading-spinner');
-            const extractBtnText = document.getElementById('extract-btn-text');
+            // DOM Elements
+            const dropArea = document.getElementById('dropArea');
+            const pdfInput = document.getElementById('pdfInput');
+            const fileName = document.getElementById('fileName');
+            const uploadProgress = document.getElementById('uploadProgress');
+            const uploadProgressBar = document.getElementById('uploadProgressBar');
+            const extractedText = document.getElementById('extractedText');
+            const generateBtn = document.getElementById('generateBtn');
+            const generateProgress = document.getElementById('generateProgress');
+            const generateProgressBar = document.getElementById('generateProgressBar');
+            const audioPlayer = document.getElementById('audioPlayer');
+            const downloadLink = document.getElementById('downloadLink');
+            const step1 = document.getElementById('step1');
+            const step2 = document.getElementById('step2');
+            const step3 = document.getElementById('step3');
+            const step4 = document.getElementById('step4');
+            const voiceSelect = document.getElementById('voiceSelect');
             const installPrompt = document.getElementById('install-prompt');
             const installBtn = document.getElementById('install-btn');
             const closePromptBtn = document.getElementById('close-prompt-btn');
-
-            // Enable text editing (remove readonly)
-            extractedTextArea.removeAttribute('readonly');
             
-            // Handle PDF upload and text extraction
-            uploadForm.addEventListener('submit', async function(e) {
-                e.preventDefault();
+            // Error handling elements
+            const errorContainer = document.getElementById('errorContainer');
+            const errorMessage = document.getElementById('errorMessage');
+            const errorTrace = document.getElementById('errorTrace');
+            const errorDetails = document.getElementById('errorDetails');
+            const toggleErrorDetailsBtn = document.getElementById('toggleErrorDetailsBtn');
+            const closeErrorBtn = document.getElementById('closeErrorBtn');
+
+            // Event listeners for toggle and close buttons
+            toggleErrorDetailsBtn.addEventListener('click', () => {
+                const isHidden = errorDetails.style.display === 'none';
+                errorDetails.style.display = isHidden ? 'block' : 'none';
+                toggleErrorDetailsBtn.textContent = isHidden ? 'Hide Technical Details' : 'Show Technical Details';
+            });
+
+            closeErrorBtn.addEventListener('click', () => {
+                errorContainer.style.display = 'none';
+            });
+
+            // Display error function
+            function showError(message, details = null) {
+                console.error('Error:', message, details);
+                errorMessage.textContent = message || 'An unknown error occurred';
                 
-                const file = pdfFileInput.files[0];
-                if (!file) {
-                    alert('Please select a PDF file first.');
-                    return;
+                if (details) {
+                    errorTrace.textContent = typeof details === 'object' 
+                        ? JSON.stringify(details, null, 2) 
+                        : details;
+                    errorDetails.style.display = 'none'; // Hide initially
+                    toggleErrorDetailsBtn.style.display = 'block'; // Show toggle button
+                } else {
+                    toggleErrorDetailsBtn.style.display = 'none'; // Hide toggle if no details
                 }
                 
-                // Show loading spinner
-                loadingSpinner.style.display = 'inline-block';
-                extractBtnText.textContent = 'Extracting...';
+                errorContainer.style.display = 'block';
+                
+                // Scroll to error container
+                errorContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }
+
+            // Reset progress bars
+            function resetProgress() {
+                uploadProgressBar.style.width = '0%';
+                generateProgressBar.style.width = '0%';
+            }
+
+            // Upload PDF
+            function uploadPDF(file) {
+                if (!file || file.type !== 'application/pdf') {
+                    showError('Please select a valid PDF file.');
+                    return;
+                }
+
+                fileName.textContent = file.name;
+                uploadProgress.style.display = 'block';
                 
                 const formData = new FormData();
                 formData.append('file', file);
-                
-                try {
-                    const response = await fetch('/extract', {
-                        method: 'POST',
-                        body: formData
-                    });
-                    
-                    const data = await response.json();
-                    
-                    if (response.ok) {
-                        extractedTextArea.value = data.text;
-                        generateAudioBtn.disabled = false;
-                    } else {
-                        alert(data.error || 'Error extracting text from PDF');
+
+                // Simulate upload progress
+                let progress = 0;
+                const progressInterval = setInterval(() => {
+                    progress += 5;
+                    if (progress <= 90) {
+                        uploadProgressBar.style.width = progress + '%';
                     }
-                } catch (error) {
-                    console.error('Error:', error);
-                    alert('An error occurred while processing the file.');
-                } finally {
-                    // Hide loading spinner
-                    loadingSpinner.style.display = 'none';
-                    extractBtnText.textContent = 'Extract Text';
+                }, 100);
+
+                fetch('/extract', {
+                    method: 'POST',
+                    body: formData
+                })
+                .then(response => {
+                    clearInterval(progressInterval);
+                    uploadProgressBar.style.width = '100%';
+                    
+                    if (!response.ok) {
+                        return response.json().then(data => {
+                            throw new Error(data.error || 'Error extracting text from PDF');
+                        });
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    extractedText.value = data.text;
+                    step2.style.display = 'block';
+                    step3.style.display = 'block';
+                    generateBtn.textContent = 'Generate Audio';
+                    generateBtn.disabled = false;
+                    step2.scrollIntoView({ behavior: 'smooth' });
+                })
+                .catch(error => {
+                    showError('PDF Processing Error', error.message);
+                    fileName.textContent = '';
+                    uploadProgressBar.style.width = '0%';
+                    uploadProgress.style.display = 'none';
+                });
+            }
+
+            // Handle drag and drop
+            ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+                dropArea.addEventListener(eventName, preventDefaults, false);
+            });
+
+            function preventDefaults(e) {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+
+            ['dragenter', 'dragover'].forEach(eventName => {
+                dropArea.addEventListener(eventName, highlight, false);
+            });
+
+            ['dragleave', 'drop'].forEach(eventName => {
+                dropArea.addEventListener(eventName, unhighlight, false);
+            });
+
+            function highlight() {
+                dropArea.classList.add('highlight');
+            }
+
+            function unhighlight() {
+                dropArea.classList.remove('highlight');
+            }
+
+            dropArea.addEventListener('drop', handleDrop, false);
+
+            function handleDrop(e) {
+                const dt = e.dataTransfer;
+                const file = dt.files[0];
+                uploadPDF(file);
+            }
+
+            // Handle file input change
+            pdfInput.addEventListener('change', function() {
+                if (this.files && this.files[0]) {
+                    uploadPDF(this.files[0]);
                 }
             });
-            
-            // Handle text area input to enable/disable generate button
-            extractedTextArea.addEventListener('input', function() {
-                generateAudioBtn.disabled = !extractedTextArea.value.trim();
-            });
-            
-            // Handle audio generation
-            generateAudioBtn.addEventListener('click', function() {
-                const text = extractedTextArea.value.trim();
+
+            // Add event listener for generate audio button
+            generateBtn.addEventListener('click', function() {
+                // Only proceed if we have text to convert
+                const text = extractedText.value.trim();
                 if (!text) {
-                    showError('Please enter some text to convert to speech.');
+                    showError('Please upload a PDF and extract text first.');
                     return;
                 }
-
-                generateAudioBtn.textContent = 'Generating...';
-                generateAudioBtn.disabled = true;
-                let progress = 0;
                 
-                // Log detailed request info
-                console.log('Generating audio with:', {
-                    textLength: text.length,
-                    voice: voiceSelect.value,
-                    firstFewChars: text.substring(0, 100) + '...'
-                });
-
-                // Simulate generation progress
+                // Update UI to show we're working
+                generateBtn.textContent = 'Generating...';
+                generateBtn.disabled = true;
+                generateProgress.style.display = 'block';
+                generateProgressBar.style.width = '0%';
+                
+                // Simulate progress to provide visual feedback
+                let progress = 0;
                 const progressInterval = setInterval(() => {
                     progress += 1;
-                    if (progress <= 95) {
+                    if (progress <= 90) {
                         generateProgressBar.style.width = progress + '%';
                     }
-                }, 300);
-
+                }, 200);
+                
                 fetch('/generate-audio', {
                     method: 'POST',
                     headers: {
@@ -336,8 +439,8 @@
                     clearInterval(progressInterval);
                     
                     // Reset UI
-                    generateAudioBtn.textContent = 'Generate Audio';
-                    generateAudioBtn.disabled = false;
+                    generateBtn.textContent = 'Generate Audio';
+                    generateBtn.disabled = false;
                     generateProgressBar.style.width = '0%';
                     
                     // Show detailed error
@@ -348,6 +451,79 @@
                     showError(errorMsg, detailsText);
                 });
             });
+            
+            // Function to poll for audio status
+            function pollAudioStatus(audioId, progressInterval) {
+                console.log(`Polling status for audio ID: ${audioId}`);
+                
+                // We'll poll every 2 seconds
+                const MAX_POLLS = 60; // Maximum number of polls (2 min total)
+                let pollCount = 0;
+                
+                const statusInterval = setInterval(() => {
+                    pollCount++;
+                    
+                    if (pollCount > MAX_POLLS) {
+                        clearInterval(statusInterval);
+                        clearInterval(progressInterval);
+                        generateBtn.textContent = 'Generate Audio';
+                        generateBtn.disabled = false;
+                        showError('Audio generation timed out after 2 minutes. Please try with less text.');
+                        return;
+                    }
+                    
+                    fetch(`/audio-status/${audioId}`)
+                        .then(response => response.json())
+                        .then(statusData => {
+                            console.log(`Poll ${pollCount}: Status for ${audioId}:`, statusData);
+                            
+                            if (statusData.status === 'completed') {
+                                clearInterval(statusInterval);
+                                audioProcessingComplete(audioId, progressInterval);
+                            } else if (statusData.status === 'failed') {
+                                clearInterval(statusInterval);
+                                clearInterval(progressInterval);
+                                
+                                generateBtn.textContent = 'Generate Audio';
+                                generateBtn.disabled = false;
+                                generateProgressBar.style.width = '0%';
+                                
+                                showError('Audio generation failed', statusData.error || 'Unknown error');
+                            } else if (statusData.status === 'not_found') {
+                                clearInterval(statusInterval);
+                                clearInterval(progressInterval);
+                                
+                                generateBtn.textContent = 'Generate Audio';
+                                generateBtn.disabled = false;
+                                generateProgressBar.style.width = '0%';
+                                
+                                showError('Audio generation job not found');
+                            }
+                            // If still processing, continue polling
+                        })
+                        .catch(error => {
+                            console.error('Error polling for status:', error);
+                            // Don't stop polling on temporary errors
+                        });
+                }, 2000); // Poll every 2 seconds
+            }
+
+            // Function to handle completed audio processing
+            function audioProcessingComplete(audioId, progressInterval) {
+                clearInterval(progressInterval);
+                generateProgressBar.style.width = '100%';
+                
+                console.log('Audio generation completed for ID:', audioId);
+                const audioUrl = `/audio/${audioId}`;
+                
+                audioPlayer.src = audioUrl;
+                downloadLink.href = audioUrl;
+                
+                step4.style.display = 'block';
+                step4.scrollIntoView({ behavior: 'smooth' });
+                generateBtn.textContent = 'Generate Audio';
+                generateBtn.disabled = false;
+            }
             
             // PWA installation
             let deferredPrompt;
@@ -387,243 +563,12 @@
                         .catch(err => console.log('Service worker registration failed:', err));
                 });
             }
+
+            // Initial state - reset UI
+            resetProgress();
+            generateBtn.textContent = 'Waiting for Text...';
+            generateBtn.disabled = true;
         });
-
-        // DOM Elements
-        const dropArea = document.getElementById('dropArea');
-        const pdfInput = document.getElementById('pdfInput');
-        const fileName = document.getElementById('fileName');
-        const uploadProgress = document.getElementById('uploadProgress');
-        const uploadProgressBar = document.getElementById('uploadProgressBar');
-        const extractedText = document.getElementById('extractedText');
-        const generateBtn = document.getElementById('generateBtn');
-        const generateProgress = document.getElementById('generateProgress');
-        const generateProgressBar = document.getElementById('generateProgressBar');
-        const audioPlayer = document.getElementById('audioPlayer');
-        const downloadLink = document.getElementById('downloadLink');
-        const step1 = document.getElementById('step1');
-        const step2 = document.getElementById('step2');
-        const step3 = document.getElementById('step3');
-        const step4 = document.getElementById('step4');
-        const voiceSelect = document.getElementById('voiceSelect');
-        
-        // Error handling elements
-        const errorContainer = document.getElementById('errorContainer');
-        const errorMessage = document.getElementById('errorMessage');
-        const errorTrace = document.getElementById('errorTrace');
-        const errorDetails = document.getElementById('errorDetails');
-        const toggleErrorDetailsBtn = document.getElementById('toggleErrorDetailsBtn');
-        const closeErrorBtn = document.getElementById('closeErrorBtn');
-
-        // Event listeners for toggle and close buttons
-        toggleErrorDetailsBtn.addEventListener('click', () => {
-            const isHidden = errorDetails.style.display === 'none';
-            errorDetails.style.display = isHidden ? 'block' : 'none';
-            toggleErrorDetailsBtn.textContent = isHidden ? 'Hide Technical Details' : 'Show Technical Details';
-        });
-
-        closeErrorBtn.addEventListener('click', () => {
-            errorContainer.style.display = 'none';
-        });
-
-        // Display error function
-        function showError(message, details = null) {
-            console.error('Error:', message, details);
-            errorMessage.textContent = message || 'An unknown error occurred';
-            
-            if (details) {
-                errorTrace.textContent = typeof details === 'object' 
-                    ? JSON.stringify(details, null, 2) 
-                    : details;
-                errorDetails.style.display = 'none'; // Hide initially
-                toggleErrorDetailsBtn.style.display = 'block'; // Show toggle button
-            } else {
-                toggleErrorDetailsBtn.style.display = 'none'; // Hide toggle if no details
-            }
-            
-            errorContainer.style.display = 'block';
-            
-            // Scroll to error container
-            errorContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        }
-
-        // Reset progress bars
-        function resetProgress() {
-            uploadProgressBar.style.width = '0%';
-            generateProgressBar.style.width = '0%';
-        }
-
-        // Upload PDF
-        function uploadPDF(file) {
-            if (!file || file.type !== 'application/pdf') {
-                showError('Please select a valid PDF file.');
-                return;
-            }
-
-            fileName.textContent = file.name;
-            uploadProgress.style.display = 'block';
-            
-            const formData = new FormData();
-            formData.append('file', file);
-
-            // Simulate upload progress
-            let progress = 0;
-            const progressInterval = setInterval(() => {
-                progress += 5;
-                if (progress <= 90) {
-                    uploadProgressBar.style.width = progress + '%';
-                }
-            }, 100);
-
-            fetch('/extract', {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => {
-                clearInterval(progressInterval);
-                uploadProgressBar.style.width = '100%';
-                
-                if (!response.ok) {
-                    return response.json().then(data => {
-                        throw new Error(data.error || 'Error extracting text from PDF');
-                    });
-                }
-                return response.json();
-            })
-            .then(data => {
-                extractedText.value = data.text;
-                step2.style.display = 'block';
-                step3.style.display = 'block';
-                generateBtn.textContent = 'Generate Audio';
-                generateBtn.disabled = false;
-                step2.scrollIntoView({ behavior: 'smooth' });
-            })
-            .catch(error => {
-                showError('PDF Processing Error', error.message);
-                fileName.textContent = '';
-                uploadProgressBar.style.width = '0%';
-                uploadProgress.style.display = 'none';
-            });
-        }
-
-        // Function to poll for audio status
-        function pollAudioStatus(audioId, progressInterval) {
-            console.log(`Polling status for audio ID: ${audioId}`);
-            
-            // We'll poll every 2 seconds
-            const MAX_POLLS = 60; // Maximum number of polls (2 min total)
-            let pollCount = 0;
-            
-            const statusInterval = setInterval(() => {
-                pollCount++;
-                
-                if (pollCount > MAX_POLLS) {
-                    clearInterval(statusInterval);
-                    clearInterval(progressInterval);
-                    generateBtn.textContent = 'Generate Audio';
-                    generateBtn.disabled = false;
-                    showError('Audio generation timed out after 2 minutes. Please try with less text.');
-                    return;
-                }
-                
-                fetch(`/audio-status/${audioId}`)
-                    .then(response => response.json())
-                    .then(statusData => {
-                        console.log(`Poll ${pollCount}: Status for ${audioId}:`, statusData);
-                        
-                        if (statusData.status === 'completed') {
-                            clearInterval(statusInterval);
-                            audioProcessingComplete(audioId, progressInterval);
-                        } else if (statusData.status === 'failed') {
-                            clearInterval(statusInterval);
-                            clearInterval(progressInterval);
-                            
-                            generateBtn.textContent = 'Generate Audio';
-                            generateBtn.disabled = false;
-                            generateProgressBar.style.width = '0%';
-                            
-                            showError('Audio generation failed', statusData.error || 'Unknown error');
-                        } else if (statusData.status === 'not_found') {
-                            clearInterval(statusInterval);
-                            clearInterval(progressInterval);
-                            
-                            generateBtn.textContent = 'Generate Audio';
-                            generateBtn.disabled = false;
-                            generateProgressBar.style.width = '0%';
-                            
-                            showError('Audio generation job not found');
-                        }
-                        // If still processing, continue polling
-                    })
-                    .catch(error => {
-                        console.error('Error polling for status:', error);
-                        // Don't stop polling on temporary errors
-                    });
-            }, 2000); // Poll every 2 seconds
-        }
-
-        // Function to handle completed audio processing
-        function audioProcessingComplete(audioId, progressInterval) {
-            clearInterval(progressInterval);
-            generateProgressBar.style.width = '100%';
-            
-            console.log('Audio generation completed for ID:', audioId);
-            const audioUrl = `/audio/${audioId}`;
-            
-            audioPlayer.src = audioUrl;
-            downloadLink.href = audioUrl;
-            
-            step4.style.display = 'block';
-            step4.scrollIntoView({ behavior: 'smooth' });
-            generateBtn.textContent = 'Generate Audio';
-            generateBtn.disabled = false;
-        }
-
-        // Handle drag and drop
-        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
-            dropArea.addEventListener(eventName, preventDefaults, false);
-        });
-
-        function preventDefaults(e) {
-            e.preventDefault();
-            e.stopPropagation();
-        }
-
-        ['dragenter', 'dragover'].forEach(eventName => {
-            dropArea.addEventListener(eventName, highlight, false);
-        });
-
-        ['dragleave', 'drop'].forEach(eventName => {
-            dropArea.addEventListener(eventName, unhighlight, false);
-        });
-
-        function highlight() {
-            dropArea.classList.add('highlight');
-        }
-
-        function unhighlight() {
-            dropArea.classList.remove('highlight');
-        }
-
-        dropArea.addEventListener('drop', handleDrop, false);
-
-        function handleDrop(e) {
-            const dt = e.dataTransfer;
-            const file = dt.files[0];
-            uploadPDF(file);
-        }
-
-        // Handle file input change
-        pdfInput.addEventListener('change', function() {
-            if (this.files && this.files[0]) {
-                uploadPDF(this.files[0]);
-            }
-        });
-
-        // Initial state - reset UI
-        resetProgress();
-        generateBtn.textContent = 'Waiting for Text...';
-        generateBtn.disabled = true;
     </script>
 </body>
 </html> 
