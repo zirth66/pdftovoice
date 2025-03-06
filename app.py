@@ -12,7 +12,6 @@ import logging
 import traceback
 import sys
 import threading
-from pydub import AudioSegment
 
 # Configure logging
 logging.basicConfig(
@@ -254,212 +253,63 @@ def get_audio_status(audio_id):
     return jsonify({'status': 'not_found', 'error': 'Audio job not found'}), 404
 
 async def process_text_in_chunks(text, voice, output_path):
-    """Process text in chunks to avoid timeouts."""
-    # Settings for chunking
-    chunk_size = 150  # characters per chunk - smaller for faster processing
-    max_chunks = 40   # limit total processing time
+    """Process text for speech synthesis.
     
-    # Split text into sentences to make natural chunks
-    logger.info(f"Splitting text into chunks (text length: {len(text)})")
-    sentences = re.split(r'(?<=[.!?])\s+', text)
-    chunks = []
-    current_chunk = ""
+    Note: This function name is preserved for compatibility, but it now processes
+    the entire text at once instead of in chunks.
+    """
+    logger.info(f"Processing text for audio generation, length: {len(text)} characters")
     
-    # Create chunks of text by combining sentences until reaching chunk_size
-    for sentence in sentences:
-        if len(current_chunk) + len(sentence) <= chunk_size:
-            current_chunk += " " + sentence if current_chunk else sentence
-        else:
-            if current_chunk:
-                chunks.append(current_chunk)
-            current_chunk = sentence
+    # Maximum text length to process (to avoid excessive processing time)
+    max_length = 20000
     
-    # Add the last chunk if not empty
-    if current_chunk:
-        chunks.append(current_chunk)
+    # Check if text is too long and truncate if necessary
+    if len(text) > max_length:
+        logger.warning(f"Text is too long ({len(text)} chars), truncating to {max_length} chars")
+        # Try to truncate at a sentence boundary
+        truncated_text = text[:max_length]
+        last_period = truncated_text.rfind('.')
+        if last_period > max_length * 0.8:  # If we can find a period in the last 20% of the text
+            truncated_text = truncated_text[:last_period+1]
+        text = truncated_text + "\n\n[Text was truncated due to length limitations.]"
     
-    # Limit number of chunks for processing time
-    if len(chunks) > max_chunks:
-        logger.warning(f"Text has {len(chunks)} chunks, limiting to {max_chunks}")
-        chunks = chunks[:max_chunks]
-        chunks.append("... Text was truncated due to length limitations.")
+    # Try with retries for the entire text
+    max_retries = 2
+    success = False
+    
+    for retry in range(max_retries + 1):
+        if retry > 0:
+            logger.info(f"Retry {retry}/{max_retries} for full text generation")
         
-    logger.info(f"Processing text in {len(chunks)} chunks")
-    
-    # Process each chunk with a smaller timeout
-    chunk_timeout = 5  # seconds per chunk - reduced for faster processing
-    max_retries = 2    # number of retries for failed chunks
-    temp_files = []
-    
-    for i, chunk in enumerate(chunks):
-        chunk_start = time.time()
-        logger.info(f"Processing chunk {i+1}/{len(chunks)}, length: {len(chunk)}")
-        
-        # Create temporary file for this chunk
-        temp_path = f"{output_path}.chunk_{i}.mp3"
-        
-        # Try with retries
-        success = False
-        for retry in range(max_retries + 1):
-            try:
-                # Use asyncio.wait_for to enforce timeout for each chunk
-                if retry > 0:
-                    logger.info(f"Retry {retry}/{max_retries} for chunk {i+1}")
-                
-                logger.debug(f"Starting Edge TTS for chunk {i+1}")
-                await asyncio.wait_for(
-                    _generate_speech(chunk, voice, temp_path),
-                    timeout=chunk_timeout
-                )
-                chunk_duration = time.time() - chunk_start
-                logger.info(f"Chunk {i+1} processed in {chunk_duration:.2f} seconds")
-                
-                # Verify chunk was created
-                if os.path.exists(temp_path) and os.path.getsize(temp_path) > 0:
-                    logger.debug(f"Chunk {i+1} audio file created successfully: {temp_path}, size: {os.path.getsize(temp_path)}")
-                    temp_files.append(temp_path)
-                    success = True
-                    break
-                else:
-                    logger.error(f"Chunk {i+1} audio file missing or empty: {temp_path}")
-                    
-            except asyncio.TimeoutError:
-                logger.error(f"Timeout processing chunk {i+1}, retry {retry}/{max_retries}")
-                if retry == max_retries:
-                    logger.error(f"All retries failed for chunk {i+1}")
-                    break
-            except Exception as e:
-                logger.error(f"Error processing chunk {i+1}, retry {retry}/{max_retries}: {str(e)}", exc_info=True)
-                if retry == max_retries:
-                    logger.error(f"All retries failed for chunk {i+1}")
-                    break
-        
-        # If all retries failed, continue with next chunk
-        if not success:
-            logger.warning(f"Skipping chunk {i+1} after failed attempts")
-            continue
-    
-    # Combine all chunk files into one mp3
-    logger.info(f"Combining {len(temp_files)} audio chunks")
-    combined = _combine_audio_files(temp_files, output_path)
-    
-    # Clean up temporary files
-    for temp_file in temp_files:
-        if os.path.exists(temp_file):
-            try:
-                os.remove(temp_file)
-                logger.debug(f"Removed temporary file: {temp_file}")
-            except Exception as e:
-                logger.error(f"Error removing temporary file {temp_file}: {str(e)}")
-    
-    return combined
-
-def _combine_audio_files(file_paths, output_path):
-    """Combine multiple MP3 files into one."""
-    if not file_paths:
-        logger.error("No files to combine")
-        return False
-        
-    # Filter out non-existent files
-    existing_files = [f for f in file_paths if os.path.exists(f) and os.path.getsize(f) > 0]
-    logger.info(f"Found {len(existing_files)} valid audio files out of {len(file_paths)} total files")
-    
-    if not existing_files:
-        logger.error("No valid audio files to combine")
-        return False
-        
-    # If only one file, just rename it
-    if len(existing_files) == 1:
-        logger.info(f"Only one valid file, copying to output: {existing_files[0]} -> {output_path}")
-        # Copy the single file to the output path
         try:
-            with open(existing_files[0], 'rb') as src, open(output_path, 'wb') as dst:
-                dst.write(src.read())
-            return True
+            # Generate speech for the entire text at once
+            success = await generate_speech_full(text, voice, output_path)
+            if success:
+                logger.info(f"Successfully generated audio at {output_path}")
+                break
+            else:
+                logger.error(f"Failed to generate audio on attempt {retry+1}/{max_retries+1}")
         except Exception as e:
-            logger.error(f"Error copying single file: {str(e)}", exc_info=True)
-            return False
+            logger.error(f"Error in text processing, retry {retry}/{max_retries}: {str(e)}", exc_info=True)
     
-    try:
-        # Combine audio files using pydub
-        logger.info(f"Combining {len(existing_files)} audio files")
-        combined = AudioSegment.empty()
-        for file_path in existing_files:
-            try:
-                chunk = AudioSegment.from_mp3(file_path)
-                combined += chunk
-                logger.debug(f"Added file to combined audio: {file_path}, duration: {len(chunk)/1000}s")
-            except Exception as e:
-                logger.error(f"Error processing audio file {file_path}: {str(e)}")
-                # Continue with other files
-                continue
-            
-        combined.export(output_path, format="mp3")
-        logger.info(f"Combined audio exported to {output_path}, duration: {len(combined)/1000}s")
-        return True
-    except Exception as e:
-        logger.error(f"Error combining audio files: {str(e)}", exc_info=True)
-        # If combining fails, use the first file as fallback
-        try:
-            logger.info(f"Attempting fallback - using first file: {existing_files[0]}")
-            with open(existing_files[0], 'rb') as src, open(output_path, 'wb') as dst:
-                dst.write(src.read())
-            return True
-        except Exception as fallback_error:
-            logger.error(f"Fallback failed: {str(fallback_error)}")
-            return False
+    if not success:
+        logger.error("All attempts to generate audio failed")
+        return False
+    
+    return output_path
 
 async def _generate_speech(text, voice, output_path):
-    """Internal function to generate speech using Edge TTS."""
+    """Internal function to generate speech using Edge TTS.
+    
+    Note: Kept for backward compatibility, now delegates to generate_speech_full.
+    """
     try:
-        logger.debug(f"Creating Edge TTS communicate object for voice: {voice}")
-        # Add rate limit to make the API call more efficient
-        communicate = edge_tts.Communicate(text, voice, rate="+25%")
-        
-        # Use a more direct approach - write to memory first
-        audio_data = io.BytesIO()
-        logger.debug("Starting Edge TTS stream")
-        
-        chunk_count = 0
-        # Add a timeout for the streaming operation
-        stream_timeout = 4  # seconds
-        
-        # Create a task with timeout
-        try:
-            async with asyncio.timeout(stream_timeout):
-                async for chunk in communicate.stream():
-                    if chunk["type"] == "audio":
-                        audio_data.write(chunk["data"])
-                        chunk_count += 1
-        except asyncio.TimeoutError:
-            logger.warning(f"Stream timeout after receiving {chunk_count} chunks")
-            # If we have some data, continue with what we've got
-            if chunk_count == 0:
-                raise
-        
-        logger.debug(f"Received {chunk_count} audio chunks from Edge TTS")
-        
-        # Write the complete audio to disk
-        audio_data.seek(0)
-        audio_size = len(audio_data.getvalue())
-        logger.debug(f"Writing {audio_size} bytes to {output_path}")
-        
-        with open(output_path, 'wb') as f:
-            f.write(audio_data.read())
-            
-        # Verify the file was written correctly
-        if os.path.exists(output_path):
-            file_size = os.path.getsize(output_path)
-            logger.debug(f"File written successfully: {output_path}, size: {file_size} bytes")
-            if file_size == 0:
-                logger.error(f"Empty file created: {output_path}")
-                raise Exception("Generated audio file is empty")
+        logger.debug(f"Generating speech using _generate_speech (delegating to generate_speech_full)")
+        result = await generate_speech_full(text, voice, output_path)
+        if result:
+            return True
         else:
-            logger.error(f"File not created: {output_path}")
-            raise Exception("Failed to create audio file")
-            
-        return True
-        
+            raise Exception("Speech generation failed")
     except Exception as e:
         logger.error(f"Error in _generate_speech: {str(e)}", exc_info=True)
         raise
@@ -543,6 +393,66 @@ def server_error(e):
         'details': str(e),
         'traceback': traceback.format_exc()
     }), 500
+
+async def generate_speech_full(text, voice, output_path):
+    """Generate speech for the entire text directly without chunking.
+    
+    Args:
+        text (str): The text to convert to speech
+        voice (str): The voice to use
+        output_path (str): Path where the audio file should be saved
+        
+    Returns:
+        bool: True if successful, False otherwise
+    """
+    try:
+        logger.info(f"Generating speech for text of length {len(text)} using Edge TTS directly")
+        
+        # Create communicate object with voice and rate settings
+        communicate = edge_tts.Communicate(text, voice, rate="+25%")
+        
+        # Open the output file directly
+        with open(output_path, "wb") as file:
+            audio_chunk_count = 0
+            total_bytes = 0
+            
+            # Set longer timeout for full text processing
+            timeout_seconds = max(30, min(300, len(text) // 50))
+            logger.debug(f"Using timeout of {timeout_seconds} seconds based on text length")
+            
+            try:
+                async with asyncio.timeout(timeout_seconds):
+                    async for chunk in communicate.stream():
+                        if chunk["type"] == "audio":
+                            file.write(chunk["data"])
+                            total_bytes += len(chunk["data"])
+                            audio_chunk_count += 1
+                            
+                            # Log progress for large texts
+                            if audio_chunk_count % 50 == 0:
+                                logger.debug(f"Processed {audio_chunk_count} audio chunks, {total_bytes} bytes")
+            except asyncio.TimeoutError:
+                logger.warning(f"Timeout after processing {audio_chunk_count} chunks. Using partial results.")
+                if audio_chunk_count == 0:
+                    raise Exception("TTS processing timed out without generating any audio")
+        
+        # Verify the output file
+        if not os.path.exists(output_path):
+            logger.error("Output file was not created")
+            return False
+            
+        file_size = os.path.getsize(output_path)
+        logger.info(f"Generated audio file: {output_path}, size: {file_size} bytes")
+        
+        if file_size == 0:
+            logger.error("Generated audio file is empty")
+            return False
+            
+        return True
+        
+    except Exception as e:
+        logger.error(f"Error in generate_speech_full: {str(e)}", exc_info=True)
+        return False
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5001) 
