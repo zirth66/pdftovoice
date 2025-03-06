@@ -13,6 +13,9 @@
     
     <!-- CSS -->
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="/static/styles.css">
+    <!-- Add Font Awesome for icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <style>
         body {
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
@@ -118,68 +121,86 @@
             </div>
         </div>
         
-        <div class="step">
-            <div class="step-title">
-                <span class="step-number">1</span>
-                <span>Upload PDF Document</span>
-            </div>
-            <form id="upload-form" enctype="multipart/form-data">
-                <div class="mb-3">
-                    <input class="form-control" type="file" id="pdf-file" accept=".pdf" required>
+        <div class="steps-container">
+            <!-- Step 1: Upload PDF -->
+            <div class="step" id="step1">
+                <div class="step-number">1</div>
+                <h2>Upload PDF</h2>
+                <div class="upload-area" id="dropArea">
+                    <i class="fa fa-file-pdf fa-3x"></i>
+                    <p>Drag & drop a PDF file here or</p>
+                    <label class="button">
+                        Choose File
+                        <input type="file" id="pdfInput" accept=".pdf" hidden>
+                    </label>
+                    <p id="fileName"></p>
                 </div>
-                <button type="submit" class="btn btn-primary">
-                    <span id="extract-btn-text">Extract Text</span>
-                    <span id="loading-spinner" class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-                </button>
-            </form>
-        </div>
-        
-        <div class="step">
-            <div class="step-title">
-                <span class="step-number">2</span>
-                <span>Review Extracted Text</span>
-            </div>
-            <textarea id="extracted-text" class="form-control text-area" placeholder="Extracted text will appear here..."></textarea>
-        </div>
-        
-        <div class="step">
-            <div class="step-title">
-                <span class="step-number">3</span>
-                <span>Generate Audio</span>
-            </div>
-            <div class="mb-3">
-                <label for="voice-select" class="form-label">Select Voice Language:</label>
-                <select id="voice-select" class="form-select language-select">
-                    <option value="en" selected>English (US)</option>
-                    <option value="sv">Swedish</option>
-                    <option value="fr">French</option>
-                    <option value="es">Spanish</option>
-                    <option value="de">German</option>
-                    <option value="it">Italian</option>
-                    <option value="pt">Portuguese (Brazil)</option>
-                    <option value="ru">Russian</option>
-                    <option value="ja">Japanese</option>
-                    <option value="ko">Korean</option>
-                    <option value="zh-CN">Chinese (Simplified)</option>
-                </select>
-                <div class="form-text text-muted mt-1">
-                    Using Microsoft Edge TTS
+                <div class="progress-container" id="uploadProgress" style="display: none;">
+                    <div class="progress-bar" id="uploadProgressBar"></div>
                 </div>
             </div>
-            <button id="generate-audio-btn" class="btn btn-primary" disabled>Generate Audio</button>
-            <p class="text-muted small mt-2">Note: Audio generation with Edge TTS may take a few seconds.</p>
+
+            <!-- Step 2: Review Extracted Text -->
+            <div class="step" id="step2" style="display: none;">
+                <div class="step-number">2</div>
+                <h2>Review Extracted Text</h2>
+                <textarea id="extractedText" placeholder="Extracted text will appear here..."></textarea>
+            </div>
+
+            <!-- Step 3: Generate Audio -->
+            <div class="step" id="step3" style="display: none;">
+                <div class="step-number">3</div>
+                <h2>Generate Audio</h2>
+                <div class="options-container">
+                    <div class="voice-selection">
+                        <label for="voiceSelect">Select Voice Language:</label>
+                        <select id="voiceSelect">
+                            <option value="en">English (US)</option>
+                            <option value="sv">Swedish</option>
+                            <option value="fr">French</option>
+                            <option value="es">Spanish</option>
+                            <option value="de">German</option>
+                            <option value="it">Italian</option>
+                            <option value="pt">Portuguese</option>
+                            <option value="ru">Russian</option>
+                            <option value="ja">Japanese</option>
+                            <option value="ko">Korean</option>
+                            <option value="zh-CN">Chinese</option>
+                        </select>
+                    </div>
+                    <p id="ttsInfo">Using Microsoft Edge TTS</p>
+                    <button id="generateBtn" class="button">Generating...</button>
+                </div>
+                <div class="progress-container" id="generateProgress">
+                    <div class="progress-bar" id="generateProgressBar"></div>
+                </div>
+                <p class="note">Note: Audio generation with Edge TTS may take a few seconds.</p>
+            </div>
+
+            <!-- Step 4: Download Audio -->
+            <div class="step" id="step4" style="display: none;">
+                <div class="step-number">4</div>
+                <h2>Download & Listen</h2>
+                <div class="audio-container">
+                    <audio id="audioPlayer" controls></audio>
+                    <a id="downloadLink" class="button" download>
+                        <i class="fa fa-download"></i> Download MP3
+                    </a>
+                </div>
+            </div>
             
-            <!-- Progress bar for audio generation -->
-            <div id="audio-progress" class="mt-3" style="display: none;">
-                <div class="progress">
-                    <div id="audio-progress-bar" class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" style="width: 0%"></div>
+            <!-- Error Display Area -->
+            <div id="errorContainer" class="error-container" style="display: none;">
+                <div class="error-header">
+                    <h3><i class="fas fa-exclamation-triangle"></i> Error</h3>
+                    <button id="closeErrorBtn" class="close-btn"><i class="fas fa-times"></i></button>
                 </div>
-                <p class="text-center mt-1 small" id="progress-status">Generating audio...</p>
-            </div>
-            
-            <div id="audio-player" class="audio-controls mt-4" style="display: none;">
-                <audio id="audio-element" controls class="w-100"></audio>
-                <a id="download-link" class="btn btn-success mt-2" href="#" download>Download Audio</a>
+                <div id="errorMessage" class="error-message"></div>
+                <div id="errorDetails" class="error-details" style="display: none;">
+                    <h4>Technical Details:</h4>
+                    <pre id="errorTrace"></pre>
+                </div>
+                <button id="toggleErrorDetailsBtn" class="toggle-details-btn">Show Technical Details</button>
             </div>
         </div>
     </div>
@@ -250,84 +271,82 @@
             });
             
             // Handle audio generation
-            generateAudioBtn.addEventListener('click', async function() {
-                const text = extractedTextArea.value;
+            generateAudioBtn.addEventListener('click', function() {
+                const text = extractedTextArea.value.trim();
                 if (!text) {
-                    alert('No text to convert to speech.');
+                    showError('Please enter some text to convert to speech.');
                     return;
                 }
-                
-                generateAudioBtn.disabled = true;
+
                 generateAudioBtn.textContent = 'Generating...';
-                
-                // Show progress bar
-                const audioProgress = document.getElementById('audio-progress');
-                const audioProgressBar = document.getElementById('audio-progress-bar');
-                const progressStatus = document.getElementById('progress-status');
-                audioProgress.style.display = 'block';
-                audioPlayer.style.display = 'none';
-                
-                // Simulate progress since we don't have actual progress data from the server
+                generateAudioBtn.disabled = true;
                 let progress = 0;
-                const progressInterval = setInterval(() => {
-                    progress += Math.random() * 15;
-                    if (progress > 90) progress = 90; // Stop at 90% until complete
-                    audioProgressBar.style.width = `${progress}%`;
-                }, 500);
                 
-                try {
-                    const response = await fetch('/generate-audio', {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json'
-                        },
-                        body: JSON.stringify({
-                            text: text,
-                            voice: voiceSelect.value
-                        }),
-                        // Increase timeout for Edge TTS processing
-                        timeout: 25000
-                    });
-                    
-                    // Clear interval and set to 100%
-                    clearInterval(progressInterval);
-                    audioProgressBar.style.width = '100%';
-                    progressStatus.textContent = 'Audio ready!';
-                    
-                    const data = await response.json();
-                    
-                    if (response.ok) {
-                        const audioUrl = `/audio/${data.audio_id}`;
-                        
-                        // Set audio source
-                        audioElement.src = audioUrl;
-                        
-                        // Set download link
-                        downloadLink.href = audioUrl;
-                        downloadLink.download = `pdf_audio_${data.audio_id}.mp3`;
-                        
-                        // Hide progress bar and show audio player
-                        setTimeout(() => {
-                            audioProgress.style.display = 'none';
-                            audioPlayer.style.display = 'block';
-                        }, 500); // Short delay to let user see the 100% complete state
-                    } else {
-                        const errorMessage = data.error || 'Error generating audio';
-                        console.error('TTS Error:', errorMessage);
-                        alert('Error generating audio: ' + errorMessage);
-                        audioProgress.style.display = 'none';
+                // Log detailed request info
+                console.log('Generating audio with:', {
+                    textLength: text.length,
+                    voice: voiceSelect.value,
+                    firstFewChars: text.substring(0, 100) + '...'
+                });
+
+                // Simulate generation progress
+                const progressInterval = setInterval(() => {
+                    progress += 1;
+                    if (progress <= 95) {
+                        generateProgressBar.style.width = progress + '%';
                     }
-                } catch (error) {
-                    // Clear interval on error
-                    clearInterval(progressInterval);
-                    audioProgress.style.display = 'none';
+                }, 300);
+
+                fetch('/generate-audio', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        text: text,
+                        voice: voiceSelect.value
+                    })
+                })
+                .then(response => {
+                    // Parse response as JSON even for errors
+                    return response.json().then(data => {
+                        if (!response.ok) {
+                            throw { 
+                                status: response.status,
+                                message: data.error || 'Error generating audio',
+                                details: data.traceback || null
+                            };
+                        }
+                        return data;
+                    });
+                })
+                .then(data => {
+                    console.log('Initial audio generation response:', data);
                     
-                    console.error('Error:', error);
-                    alert('An error occurred while generating audio.');
-                } finally {
-                    generateAudioBtn.disabled = false;
+                    // The request has started, now poll for status
+                    if (data.status === 'processing') {
+                        pollAudioStatus(data.audio_id, progressInterval);
+                    } else {
+                        // Handle completed status directly (rare but possible)
+                        audioProcessingComplete(data.audio_id, progressInterval);
+                    }
+                })
+                .catch(error => {
+                    console.error('Full error object:', error);
+                    clearInterval(progressInterval);
+                    
+                    // Reset UI
                     generateAudioBtn.textContent = 'Generate Audio';
-                }
+                    generateAudioBtn.disabled = false;
+                    generateProgressBar.style.width = '0%';
+                    
+                    // Show detailed error
+                    const errorMsg = error.message || 'Unknown error occurred';
+                    const detailsText = error.details || 
+                                       (error.stack ? error.stack : null);
+                    
+                    showError(errorMsg, detailsText);
+                });
             });
             
             // PWA installation
@@ -369,6 +388,242 @@
                 });
             }
         });
+
+        // DOM Elements
+        const dropArea = document.getElementById('dropArea');
+        const pdfInput = document.getElementById('pdfInput');
+        const fileName = document.getElementById('fileName');
+        const uploadProgress = document.getElementById('uploadProgress');
+        const uploadProgressBar = document.getElementById('uploadProgressBar');
+        const extractedText = document.getElementById('extractedText');
+        const generateBtn = document.getElementById('generateBtn');
+        const generateProgress = document.getElementById('generateProgress');
+        const generateProgressBar = document.getElementById('generateProgressBar');
+        const audioPlayer = document.getElementById('audioPlayer');
+        const downloadLink = document.getElementById('downloadLink');
+        const step1 = document.getElementById('step1');
+        const step2 = document.getElementById('step2');
+        const step3 = document.getElementById('step3');
+        const step4 = document.getElementById('step4');
+        const voiceSelect = document.getElementById('voiceSelect');
+        
+        // Error handling elements
+        const errorContainer = document.getElementById('errorContainer');
+        const errorMessage = document.getElementById('errorMessage');
+        const errorTrace = document.getElementById('errorTrace');
+        const errorDetails = document.getElementById('errorDetails');
+        const toggleErrorDetailsBtn = document.getElementById('toggleErrorDetailsBtn');
+        const closeErrorBtn = document.getElementById('closeErrorBtn');
+
+        // Event listeners for toggle and close buttons
+        toggleErrorDetailsBtn.addEventListener('click', () => {
+            const isHidden = errorDetails.style.display === 'none';
+            errorDetails.style.display = isHidden ? 'block' : 'none';
+            toggleErrorDetailsBtn.textContent = isHidden ? 'Hide Technical Details' : 'Show Technical Details';
+        });
+
+        closeErrorBtn.addEventListener('click', () => {
+            errorContainer.style.display = 'none';
+        });
+
+        // Display error function
+        function showError(message, details = null) {
+            console.error('Error:', message, details);
+            errorMessage.textContent = message || 'An unknown error occurred';
+            
+            if (details) {
+                errorTrace.textContent = typeof details === 'object' 
+                    ? JSON.stringify(details, null, 2) 
+                    : details;
+                errorDetails.style.display = 'none'; // Hide initially
+                toggleErrorDetailsBtn.style.display = 'block'; // Show toggle button
+            } else {
+                toggleErrorDetailsBtn.style.display = 'none'; // Hide toggle if no details
+            }
+            
+            errorContainer.style.display = 'block';
+            
+            // Scroll to error container
+            errorContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+
+        // Reset progress bars
+        function resetProgress() {
+            uploadProgressBar.style.width = '0%';
+            generateProgressBar.style.width = '0%';
+        }
+
+        // Upload PDF
+        function uploadPDF(file) {
+            if (!file || file.type !== 'application/pdf') {
+                showError('Please select a valid PDF file.');
+                return;
+            }
+
+            fileName.textContent = file.name;
+            uploadProgress.style.display = 'block';
+            
+            const formData = new FormData();
+            formData.append('file', file);
+
+            // Simulate upload progress
+            let progress = 0;
+            const progressInterval = setInterval(() => {
+                progress += 5;
+                if (progress <= 90) {
+                    uploadProgressBar.style.width = progress + '%';
+                }
+            }, 100);
+
+            fetch('/extract', {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => {
+                clearInterval(progressInterval);
+                uploadProgressBar.style.width = '100%';
+                
+                if (!response.ok) {
+                    return response.json().then(data => {
+                        throw new Error(data.error || 'Error extracting text from PDF');
+                    });
+                }
+                return response.json();
+            })
+            .then(data => {
+                extractedText.value = data.text;
+                step2.style.display = 'block';
+                step3.style.display = 'block';
+                generateBtn.textContent = 'Generate Audio';
+                generateBtn.disabled = false;
+                step2.scrollIntoView({ behavior: 'smooth' });
+            })
+            .catch(error => {
+                showError('PDF Processing Error', error.message);
+                fileName.textContent = '';
+                uploadProgressBar.style.width = '0%';
+                uploadProgress.style.display = 'none';
+            });
+        }
+
+        // Function to poll for audio status
+        function pollAudioStatus(audioId, progressInterval) {
+            console.log(`Polling status for audio ID: ${audioId}`);
+            
+            // We'll poll every 2 seconds
+            const MAX_POLLS = 60; // Maximum number of polls (2 min total)
+            let pollCount = 0;
+            
+            const statusInterval = setInterval(() => {
+                pollCount++;
+                
+                if (pollCount > MAX_POLLS) {
+                    clearInterval(statusInterval);
+                    clearInterval(progressInterval);
+                    generateBtn.textContent = 'Generate Audio';
+                    generateBtn.disabled = false;
+                    showError('Audio generation timed out after 2 minutes. Please try with less text.');
+                    return;
+                }
+                
+                fetch(`/audio-status/${audioId}`)
+                    .then(response => response.json())
+                    .then(statusData => {
+                        console.log(`Poll ${pollCount}: Status for ${audioId}:`, statusData);
+                        
+                        if (statusData.status === 'completed') {
+                            clearInterval(statusInterval);
+                            audioProcessingComplete(audioId, progressInterval);
+                        } else if (statusData.status === 'failed') {
+                            clearInterval(statusInterval);
+                            clearInterval(progressInterval);
+                            
+                            generateBtn.textContent = 'Generate Audio';
+                            generateBtn.disabled = false;
+                            generateProgressBar.style.width = '0%';
+                            
+                            showError('Audio generation failed', statusData.error || 'Unknown error');
+                        } else if (statusData.status === 'not_found') {
+                            clearInterval(statusInterval);
+                            clearInterval(progressInterval);
+                            
+                            generateBtn.textContent = 'Generate Audio';
+                            generateBtn.disabled = false;
+                            generateProgressBar.style.width = '0%';
+                            
+                            showError('Audio generation job not found');
+                        }
+                        // If still processing, continue polling
+                    })
+                    .catch(error => {
+                        console.error('Error polling for status:', error);
+                        // Don't stop polling on temporary errors
+                    });
+            }, 2000); // Poll every 2 seconds
+        }
+
+        // Function to handle completed audio processing
+        function audioProcessingComplete(audioId, progressInterval) {
+            clearInterval(progressInterval);
+            generateProgressBar.style.width = '100%';
+            
+            console.log('Audio generation completed for ID:', audioId);
+            const audioUrl = `/audio/${audioId}`;
+            
+            audioPlayer.src = audioUrl;
+            downloadLink.href = audioUrl;
+            
+            step4.style.display = 'block';
+            step4.scrollIntoView({ behavior: 'smooth' });
+            generateBtn.textContent = 'Generate Audio';
+            generateBtn.disabled = false;
+        }
+
+        // Handle drag and drop
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropArea.addEventListener(eventName, preventDefaults, false);
+        });
+
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropArea.addEventListener(eventName, highlight, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropArea.addEventListener(eventName, unhighlight, false);
+        });
+
+        function highlight() {
+            dropArea.classList.add('highlight');
+        }
+
+        function unhighlight() {
+            dropArea.classList.remove('highlight');
+        }
+
+        dropArea.addEventListener('drop', handleDrop, false);
+
+        function handleDrop(e) {
+            const dt = e.dataTransfer;
+            const file = dt.files[0];
+            uploadPDF(file);
+        }
+
+        // Handle file input change
+        pdfInput.addEventListener('change', function() {
+            if (this.files && this.files[0]) {
+                uploadPDF(this.files[0]);
+            }
+        });
+
+        // Initial state - reset UI
+        resetProgress();
+        generateBtn.textContent = 'Waiting for Text...';
+        generateBtn.disabled = true;
     </script>
 </body>
 </html> 
