@@ -7,6 +7,8 @@ import asyncio
 import edge_tts
 import time
 import io
+import re
+from pydub import AudioSegment
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = '/tmp/uploads'
@@ -67,22 +69,28 @@ def extract_text():
     if file.filename == '':
         return jsonify({'error': 'No selected file'}), 400
     
-    if file and file.filename.endswith('.pdf'):
-        # Save the uploaded PDF
+    if file and file.filename.lower().endswith('.pdf'):
         filename = secure_filename(file.filename)
         filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
         file.save(filepath)
         
-        # Extract text from PDF
-        text = extract_text_from_pdf(filepath)
-        
-        # Clean up the file after extraction
-        os.remove(filepath)
-        
-        # Return extracted text
-        return jsonify({'text': text})
-    
-    return jsonify({'error': 'Invalid file format. Please upload a PDF file.'}), 400
+        try:
+            # Extract text from PDF
+            extracted_text = extract_text_from_pdf(filepath)
+            if not extracted_text:
+                return jsonify({'error': 'Failed to extract text from PDF. The file might be encrypted or contain only images.'}), 400
+            
+            # Clean up - delete the uploaded file
+            os.remove(filepath)
+            
+            return jsonify({'text': extracted_text})
+        except Exception as e:
+            # Clean up in case of error
+            if os.path.exists(filepath):
+                os.remove(filepath)
+            return jsonify({'error': f'Error processing PDF: {str(e)}'}), 500
+    else:
+        return jsonify({'error': 'Unsupported file type. Please upload a PDF file.'}), 400
 
 @app.route('/generate-audio', methods=['POST'])
 def generate_audio():
@@ -91,6 +99,9 @@ def generate_audio():
         return jsonify({'error': 'No text provided'}), 400
     
     text = data['text']
+    if not text.strip():
+        return jsonify({'error': 'Empty text provided'}), 400
+        
     lang_code = data.get('voice', 'en')  # Default to English
     
     # Get the appropriate voice for the language
@@ -105,17 +116,12 @@ def generate_audio():
     start_time = time.time()
     print(f"Starting audio generation with Edge TTS: {voice}, text length: {len(text)}")
     
-    # Limit text length for serverless environments
-    # Edge TTS can time out with very long text
-    max_chars = 3000
-    if len(text) > max_chars:
-        print(f"Text too long ({len(text)} chars), truncating to {max_chars} chars")
-        text = text[:max_chars] + "... [Text was truncated due to length limitations]"
-    
     try:
         # Create a new event loop for this request
         asyncio.set_event_loop(asyncio.new_event_loop())
-        result = asyncio.run(generate_speech_with_timeout(text, voice, audio_path))
+        
+        # Process the text in chunks to avoid timeouts
+        result = asyncio.run(process_text_in_chunks(text, voice, audio_path))
         
         # Check if audio was generated
         if not os.path.exists(audio_path) or os.path.getsize(audio_path) < 100:  # Ensure file isn't empty
@@ -134,21 +140,115 @@ def generate_audio():
         print(f"Error in generate_audio: {error_msg}")
         return jsonify({'error': f'Error generating audio: {error_msg}'}), 500
 
-async def generate_speech_with_timeout(text, voice, output_path):
-    """Generate speech using Edge TTS with a timeout."""
-    # Set a reasonable timeout for serverless environments
-    timeout_seconds = 25 
+async def process_text_in_chunks(text, voice, output_path):
+    """Process text in chunks to avoid timeouts."""
+    # Settings for chunking
+    chunk_size = 500  # characters per chunk (adjust as needed)
+    max_chunks = 20   # limit total processing time
+    
+    # Split text into sentences to make natural chunks
+    sentences = re.split(r'(?<=[.!?])\s+', text)
+    chunks = []
+    current_chunk = ""
+    
+    # Create chunks of text by combining sentences until reaching chunk_size
+    for sentence in sentences:
+        if len(current_chunk) + len(sentence) <= chunk_size:
+            current_chunk += " " + sentence if current_chunk else sentence
+        else:
+            if current_chunk:
+                chunks.append(current_chunk)
+            current_chunk = sentence
+    
+    # Add the last chunk if not empty
+    if current_chunk:
+        chunks.append(current_chunk)
+    
+    # Limit number of chunks for processing time
+    if len(chunks) > max_chunks:
+        print(f"Warning: Text has {len(chunks)} chunks, limiting to {max_chunks}")
+        chunks = chunks[:max_chunks]
+        chunks.append("... Text was truncated due to length limitations.")
+        
+    print(f"Processing text in {len(chunks)} chunks")
+    
+    # Process each chunk with a smaller timeout
+    chunk_timeout = 10  # seconds per chunk
+    temp_files = []
+    
+    for i, chunk in enumerate(chunks):
+        chunk_start = time.time()
+        print(f"Processing chunk {i+1}/{len(chunks)}, length: {len(chunk)}")
+        
+        # Create temporary file for this chunk
+        temp_path = f"{output_path}.chunk_{i}.mp3"
+        temp_files.append(temp_path)
+        
+        try:
+            # Use asyncio.wait_for to enforce timeout for each chunk
+            await asyncio.wait_for(
+                _generate_speech(chunk, voice, temp_path),
+                timeout=chunk_timeout
+            )
+            chunk_duration = time.time() - chunk_start
+            print(f"Chunk {i+1} processed in {chunk_duration:.2f} seconds")
+        except asyncio.TimeoutError:
+            print(f"Timeout processing chunk {i+1}")
+            # Continue with other chunks
+            continue
+        except Exception as e:
+            print(f"Error processing chunk {i+1}: {str(e)}")
+            # Continue with other chunks
+            continue
+    
+    # Combine all chunk files into one mp3
+    combined = _combine_audio_files(temp_files, output_path)
+    
+    # Clean up temporary files
+    for temp_file in temp_files:
+        if os.path.exists(temp_file):
+            try:
+                os.remove(temp_file)
+            except:
+                pass
+    
+    return combined
+
+def _combine_audio_files(file_paths, output_path):
+    """Combine multiple MP3 files into one."""
+    if not file_paths:
+        return False
+        
+    # Filter out non-existent files
+    existing_files = [f for f in file_paths if os.path.exists(f) and os.path.getsize(f) > 0]
+    if not existing_files:
+        return False
+        
+    # If only one file, just rename it
+    if len(existing_files) == 1:
+        # Copy the single file to the output path
+        with open(existing_files[0], 'rb') as src, open(output_path, 'wb') as dst:
+            dst.write(src.read())
+        return True
     
     try:
-        # Use asyncio.wait_for to enforce timeout
-        await asyncio.wait_for(
-            _generate_speech(text, voice, output_path),
-            timeout=timeout_seconds
-        )
+        # Combine audio files using pydub
+        combined = AudioSegment.empty()
+        for file_path in existing_files:
+            chunk = AudioSegment.from_mp3(file_path)
+            combined += chunk
+            
+        combined.export(output_path, format="mp3")
         return True
-    except asyncio.TimeoutError:
-        print(f"Edge TTS operation timed out after {timeout_seconds} seconds")
-        raise
+    except Exception as e:
+        print(f"Error combining audio files: {str(e)}")
+        # If combining fails, use the first file as fallback
+        try:
+            with open(existing_files[0], 'rb') as src, open(output_path, 'wb') as dst:
+                dst.write(src.read())
+            return True
+        except:
+            return False
 
 async def _generate_speech(text, voice, output_path):
     """Internal function to generate speech using Edge TTS."""
@@ -209,9 +309,6 @@ def basic_text_cleanup(text):
     text = text.strip()
     
     return text
-
-# For serverless deployment
-app = app
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5001) 
