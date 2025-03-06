@@ -18,6 +18,7 @@ A simple web application that converts PDF documents to audio. This app extracts
 - **PDF Text Extraction**: PyPDF2
 - **Text-to-Speech**: Microsoft Edge TTS (high-quality, natural-sounding voices)
 - **Frontend**: HTML, CSS, JavaScript with Bootstrap 5
+- **Deployment**: Vercel serverless functions
 
 ## Installation
 
@@ -49,30 +50,38 @@ pip install -r requirements.txt
 
 ## Usage
 
-1. Start the application:
+1. Visit the deployed application at:
+```
+https://your-deployment-name.vercel.app/
+```
+
+Or start the application locally:
 ```
 python app.py
 ```
 
 2. Open your web browser and go to:
 ```
-http://localhost:5000
+http://localhost:5001
 ```
 
-3. On a mobile device, connect to your computer's IP address:
-```
-http://your-computer-ip:5000
-```
-
-4. Use the web interface to:
+3. Use the web interface to:
    - Upload a PDF file
    - Extract text from the PDF
    - Generate audio from the extracted text
    - Play or download the audio file
    
-5. Install as a PWA (optional):
+4. Install as a PWA (optional):
    - On desktop: Look for the install icon in your browser's address bar
    - On mobile: Use "Add to Home Screen" in your browser menu
+
+## Deploying to Vercel
+
+1. Fork or clone this repository to your GitHub account
+2. Sign up for a [Vercel](https://vercel.com) account
+3. Create a new project and import your GitHub repository
+4. In the Vercel dashboard, go to Settings → Functions and set the execution timeout to at least 30 seconds
+5. Deploy
 
 ## Mobile Usage
 
@@ -88,8 +97,8 @@ This allows you to use the app in fullscreen mode without the browser interface.
 
 - The application works best with PDFs that have properly formatted text
 - Very large PDF files may take longer to process
-- There is a character limit for the Google Text-to-Speech API (approximately 5000 characters per request)
-- The app doesn't handle scanned PDFs that don't have searchable text
+- Edge TTS requires an active internet connection
+- Vercel's free tier has a timeout limit for serverless functions (60 seconds maximum)
 
 ## License
 
@@ -100,4 +109,5 @@ MIT
 - [Flask](https://flask.palletsprojects.com/)
 - [PyPDF2](https://pythonhosted.org/PyPDF2/)
 - [Microsoft Edge TTS](https://github.com/rany2/edge-tts)
-- [Bootstrap](https://getbootstrap.com/) 
+- [Bootstrap](https://getbootstrap.com/)
+- [Vercel](https://vercel.com) for hosting 
