@@ -5,6 +5,8 @@ import PyPDF2
 import uuid
 import asyncio
 import edge_tts
+import time
+import io
 
 app = Flask(__name__)
 app.config['UPLOAD_FOLDER'] = '/tmp/uploads'
@@ -99,50 +101,69 @@ def generate_audio():
     audio_filename = f"{audio_id}.mp3"
     audio_path = os.path.join(app.config['AUDIO_FOLDER'], audio_filename)
     
+    # Start time for logging
+    start_time = time.time()
+    print(f"Starting audio generation with Edge TTS: {voice}, text length: {len(text)}")
+    
+    # Limit text length for serverless environments
+    # Edge TTS can time out with very long text
+    max_chars = 3000
+    if len(text) > max_chars:
+        print(f"Text too long ({len(text)} chars), truncating to {max_chars} chars")
+        text = text[:max_chars] + "... [Text was truncated due to length limitations]"
+    
     try:
-        # Special handling for async operation in a serverless context
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        # Create a new event loop for this request
+        asyncio.set_event_loop(asyncio.new_event_loop())
+        result = asyncio.run(generate_speech_with_timeout(text, voice, audio_path))
         
-        # Use a timeout to prevent hanging
-        task = loop.create_task(generate_speech(text, voice, audio_path))
-        try:
-            # Set a reasonable timeout for the operation
-            loop.run_until_complete(asyncio.wait_for(task, timeout=50.0))
-        except asyncio.TimeoutError:
-            print("TTS operation timed out")
-            return jsonify({'error': 'TTS operation timed out'}), 500
-        finally:
-            loop.close()
-        
-        # Verify the file was created
-        if not os.path.exists(audio_path) or os.path.getsize(audio_path) == 0:
-            print(f"Audio file not created or empty: {audio_path}")
-            return jsonify({'error': 'Failed to generate audio file'}), 500
+        # Check if audio was generated
+        if not os.path.exists(audio_path) or os.path.getsize(audio_path) < 100:  # Ensure file isn't empty
+            print(f"Audio file not created properly: {audio_path}")
+            return jsonify({'error': 'Failed to generate audio file (file missing or empty)'}), 500
             
+        duration = time.time() - start_time
+        print(f"Audio generation completed in {duration:.2f} seconds")
         return jsonify({'audio_id': audio_id})
+        
+    except asyncio.TimeoutError:
+        print("TTS operation timed out")
+        return jsonify({'error': 'TTS operation timed out - please try with shorter text'}), 500
     except Exception as e:
         error_msg = str(e)
         print(f"Error in generate_audio: {error_msg}")
         return jsonify({'error': f'Error generating audio: {error_msg}'}), 500
 
-async def generate_speech(text, voice, output_path):
-    """Generate speech using Edge TTS and save to a file."""
+async def generate_speech_with_timeout(text, voice, output_path):
+    """Generate speech using Edge TTS with a timeout."""
+    # Set a reasonable timeout for serverless environments
+    timeout_seconds = 25 
+    
     try:
-        communicate = edge_tts.Communicate(text, voice)
-        await communicate.save(output_path)
-    except Exception as e:
-        print(f"Edge TTS failed: {e}, falling back to gTTS")
-        try:
-            # Fallback to gTTS
-            from gtts import gTTS
-            # Extract language code from voice name (e.g., 'en-US-ChristopherNeural' -> 'en')
-            lang = voice.split('-')[0] if '-' in voice else 'en'
-            tts = gTTS(text=text, lang=lang, slow=False)
-            tts.save(output_path)
-        except Exception as fallback_error:
-            print(f"gTTS fallback also failed: {fallback_error}")
-            raise Exception(f"Both TTS engines failed: {e} and {fallback_error}")
+        # Use asyncio.wait_for to enforce timeout
+        await asyncio.wait_for(
+            _generate_speech(text, voice, output_path),
+            timeout=timeout_seconds
+        )
+        return True
+    except asyncio.TimeoutError:
+        print(f"Edge TTS operation timed out after {timeout_seconds} seconds")
+        raise
+
+async def _generate_speech(text, voice, output_path):
+    """Internal function to generate speech using Edge TTS."""
+    communicate = edge_tts.Communicate(text, voice)
+    
+    # Use a more direct approach - write to memory first
+    audio_data = io.BytesIO()
+    async for chunk in communicate.stream():
+        if chunk["type"] == "audio":
+            audio_data.write(chunk["data"])
+    
+    # Write the complete audio to disk
+    audio_data.seek(0)
+    with open(output_path, 'wb') as f:
+        f.write(audio_data.read())
 
 @app.route('/audio/<audio_id>')
 def get_audio(audio_id):
