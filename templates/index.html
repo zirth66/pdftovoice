@@ -312,7 +312,9 @@
                             audioPlayer.style.display = 'block';
                         }, 500); // Short delay to let user see the 100% complete state
                     } else {
-                        alert(data.error || 'Error generating audio');
+                        const errorMessage = data.error || 'Error generating audio';
+                        console.error('TTS Error:', errorMessage);
+                        alert('Error generating audio: ' + errorMessage);
                         audioProgress.style.display = 'none';
                     }
                 } catch (error) {

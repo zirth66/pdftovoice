@@ -12,10 +12,18 @@ app.config['AUDIO_FOLDER'] = '/tmp/audio'
 app.config['STATIC_FOLDER'] = 'static'
 
 # Create directories if they don't exist
-os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
-os.makedirs(app.config['AUDIO_FOLDER'], exist_ok=True)
-os.makedirs(app.config['STATIC_FOLDER'], exist_ok=True)
-os.makedirs(os.path.join(app.config['STATIC_FOLDER'], 'icons'), exist_ok=True)
+try:
+    os.makedirs(app.config['UPLOAD_FOLDER'], exist_ok=True)
+    os.makedirs(app.config['AUDIO_FOLDER'], exist_ok=True)
+    os.makedirs(app.config['STATIC_FOLDER'], exist_ok=True)
+    os.makedirs(os.path.join(app.config['STATIC_FOLDER'], 'icons'), exist_ok=True)
+    # Test if we can write to these directories
+    test_file = os.path.join(app.config['AUDIO_FOLDER'], 'test.txt')
+    with open(test_file, 'w') as f:
+        f.write('test')
+    os.remove(test_file)
+except Exception as e:
+    print(f"Directory setup error: {e}")
 
 # Map of language codes to Edge TTS voice names
 VOICE_MAPPING = {
@@ -92,20 +100,49 @@ def generate_audio():
     audio_path = os.path.join(app.config['AUDIO_FOLDER'], audio_filename)
     
     try:
-        # Special handling for async operation in a synchronous context
+        # Special handling for async operation in a serverless context
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        loop.run_until_complete(generate_speech(text, voice, audio_path))
-        loop.close()
         
+        # Use a timeout to prevent hanging
+        task = loop.create_task(generate_speech(text, voice, audio_path))
+        try:
+            # Set a reasonable timeout for the operation
+            loop.run_until_complete(asyncio.wait_for(task, timeout=50.0))
+        except asyncio.TimeoutError:
+            print("TTS operation timed out")
+            return jsonify({'error': 'TTS operation timed out'}), 500
+        finally:
+            loop.close()
+        
+        # Verify the file was created
+        if not os.path.exists(audio_path) or os.path.getsize(audio_path) == 0:
+            print(f"Audio file not created or empty: {audio_path}")
+            return jsonify({'error': 'Failed to generate audio file'}), 500
+            
         return jsonify({'audio_id': audio_id})
     except Exception as e:
-        return jsonify({'error': f'Error generating audio: {str(e)}'}), 500
+        error_msg = str(e)
+        print(f"Error in generate_audio: {error_msg}")
+        return jsonify({'error': f'Error generating audio: {error_msg}'}), 500
 
 async def generate_speech(text, voice, output_path):
     """Generate speech using Edge TTS and save to a file."""
-    communicate = edge_tts.Communicate(text, voice)
-    await communicate.save(output_path)
+    try:
+        communicate = edge_tts.Communicate(text, voice)
+        await communicate.save(output_path)
+    except Exception as e:
+        print(f"Edge TTS failed: {e}, falling back to gTTS")
+        try:
+            # Fallback to gTTS
+            from gtts import gTTS
+            # Extract language code from voice name (e.g., 'en-US-ChristopherNeural' -> 'en')
+            lang = voice.split('-')[0] if '-' in voice else 'en'
+            tts = gTTS(text=text, lang=lang, slow=False)
+            tts.save(output_path)
+        except Exception as fallback_error:
+            print(f"gTTS fallback also failed: {fallback_error}")
+            raise Exception(f"Both TTS engines failed: {e} and {fallback_error}")
 
 @app.route('/audio/<audio_id>')
 def get_audio(audio_id):
